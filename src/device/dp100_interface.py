@@ -203,7 +203,7 @@ class DP100Interface:
             DP100Status object or None if failed
         """
         response = self._send_frame(self.OP_BASICINFO)
-        if not response or len(response) < 14: # Increased check for more bytes
+        if not response or len(response) < 10: # Need at least 10 bytes for current
             return None
         
         try:
@@ -216,16 +216,17 @@ class DP100Interface:
             response_hex = ' '.join(f'{b:02x}' for b in response[:16])
             self.logger.debug(f"Status response: {response_hex}")
             
-            # Current output: bytes 8-9 (little-endian, milliamps)
+            # HYPOTHESIS 2: Output Voltage is at bytes 6-7
+            voltage_out = ((response[7] << 8) | response[6]) / 1000.0
+
+            # Current output: bytes 8-9 (little-endian, milliamps) - This seems correct
             current_out = ((response[9] << 8) | response[8]) / 1000.0
             
-            # HYPOTHESIS: Output voltage is at bytes 12-13 (little-endian, millivolts)
-            voltage_out = ((response[13] << 8) | response[12]) / 1000.0
+            # Other values identified from user feedback (ignored for now):
+            # Bytes 10-11: Input Voltage
+            # Bytes 12-13: Set Current
 
-            # The value at 10-11 appears to be input voltage, which we will ignore for now.
-            # voltage_in = ((response[11] << 8) | response[10]) / 1000.0
-
-            # HYPOTHESIS: Temperature is at bytes 14-15
+            # Temperature: try bytes 14-15
             if len(response) > 15:
                 temperature = ((response[15] << 8) | response[14]) / 10.0
             else:
