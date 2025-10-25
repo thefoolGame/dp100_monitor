@@ -21,7 +21,7 @@ Real-time power monitoring for Alientek DP100 power supply with high-frequency d
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/thefoolGame/dp100_monitor.git
 cd dp100
 ```
 
@@ -37,14 +37,24 @@ poetry shell
 
 ## Configuration
 
-Edit `config/default.yaml` to customize application behavior. Most settings are functional, but some are not fully implemented.
+The application's behavior can be customized by editing the `config/default.yaml` file.
 
-- **`device`**: All settings (sampling_rate, usb_timeout, etc.) are functional.
-- **`gui`**: All settings (refresh_rate, plot_window, etc.) are functional.
-- **`storage`**: 
-    - `buffer_size` and `compression` settings are used.
-    - `backup_interval` is obsolete after recent refactoring.
-    - `session_duration` and `max_memory_mb` are currently not implemented.
+### `device`
+- `sampling_rate`: The target number of measurements to take per second (Hz).
+- `usb_timeout`: Timeout in milliseconds for USB communication.
+- `reconnect_attempts`: Number of times to try reconnecting if the connection is lost.
+- `reconnect_delay`: Seconds to wait between reconnection attempts.
+
+### `gui`
+- `refresh_rate`: How often the web dashboard updates, in milliseconds (e.g., 100ms = 10 Hz).
+- `plot_window`: The time window displayed on the real-time plot, in seconds.
+- `decimation_factor`: To improve rendering performance, the plot only displays 1 out of every N samples. This sets N (e.g., 5 means 1/5th of points are shown).
+- `host`, `port`, `debug`: Standard network settings for the web server.
+
+### `storage`
+- `buffer_size`: Number of samples to buffer in memory before writing a batch to the HDF5 file.
+- `compression`: The compression algorithm to use for HDF5 files (e.g., `gzip`). Set to `null` to disable.
+- `compression_level`: Compression level from 1 (fastest) to 9 (best compression).
 
 ## Usage
 
