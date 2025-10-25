@@ -179,7 +179,7 @@ class DP100Interface:
             self.logger.debug(f"Wrote {bytes_written} bytes")
             
             # Read response with timeout
-            time.sleep(0.05)  # Small delay as in pydp100
+            time.sleep(0.005)  # Small delay as in pydp100
             response = self.device.read(64)
             
             if response:
@@ -203,7 +203,7 @@ class DP100Interface:
             DP100Status object or None if failed
         """
         response = self._send_frame(self.OP_BASICINFO)
-        if not response or len(response) < 11:
+        if not response or len(response) < 14: # Increased check for more bytes
             return None
         
         try:
@@ -216,16 +216,18 @@ class DP100Interface:
             response_hex = ' '.join(f'{b:02x}' for b in response[:16])
             self.logger.debug(f"Status response: {response_hex}")
             
-            # Parse values using CORRECT protocol positions found by analysis
             # Current output: bytes 8-9 (little-endian, milliamps)
             current_out = ((response[9] << 8) | response[8]) / 1000.0
             
-            # Voltage output: bytes 10-11 (little-endian, millivolts)  
-            voltage_out = ((response[11] << 8) | response[10]) / 1000.0
-            
-            # Temperature: try bytes 12-13 (might be different position)
-            if len(response) > 13:
-                temperature = ((response[13] << 8) | response[12]) / 10.0
+            # HYPOTHESIS: Output voltage is at bytes 12-13 (little-endian, millivolts)
+            voltage_out = ((response[13] << 8) | response[12]) / 1000.0
+
+            # The value at 10-11 appears to be input voltage, which we will ignore for now.
+            # voltage_in = ((response[11] << 8) | response[10]) / 1000.0
+
+            # HYPOTHESIS: Temperature is at bytes 14-15
+            if len(response) > 15:
+                temperature = ((response[15] << 8) | response[14]) / 10.0
             else:
                 temperature = 25.0  # Default
             

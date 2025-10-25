@@ -249,6 +249,10 @@ class DataCollector:
         }
         self._sample_times.clear()
         self._stats_update_time = current_time
+
+        # Clear data queue to prevent plotting old data from previous session
+        with self.data_queue.mutex:
+            self.data_queue.queue.clear()
     
     def get_sample(self, timeout: float = 0.1) -> Optional[PowerMeasurement]:
         """
@@ -327,3 +331,28 @@ class DataCollector:
     def get_device_info(self) -> Dict[str, Any]:
         """Get DP100 device information."""
         return self.dp100.get_device_info()
+
+    def get_single_measurement(self) -> Optional[PowerMeasurement]:
+        """
+        Get a single power measurement from the device.
+
+        This method bypasses the collection loop and queue, directly fetching
+        the latest measurement from the DP100 device.
+
+        Returns:
+            PowerMeasurement object or None if measurement fails
+        """
+        try:
+            measurement_data = self.dp100.get_measurement()
+            if measurement_data:
+                voltage, current, power = measurement_data
+                return PowerMeasurement(
+                    timestamp=datetime.now(),
+                    voltage=voltage,
+                    current=current,
+                    power=power
+                )
+            return None
+        except Exception as e:
+            self.logger.error(f"Error getting single measurement: {e}")
+            return None

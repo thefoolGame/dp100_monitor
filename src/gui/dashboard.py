@@ -2,6 +2,7 @@
 
 import dash
 from dash import html, dcc, Input, Output, State, callback_context
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import threading
@@ -39,13 +40,13 @@ class DP100Dashboard:
         self.performance_monitor = PerformanceMonitor(config)
         
         # Application state
-        self.collecting = False
+        self.collecting = False  # This flag now means "saving to file"
         self.session_active = False
         self.alerts = []
         
-        # Data update thread
-        self.update_thread: Optional[threading.Thread] = None
-        self.running = False
+        # Background thread management
+        self.running = True
+        self.device_monitor_thread: Optional[threading.Thread] = None
         
         # Create Dash app
         self.app = dash.Dash(
@@ -57,24 +58,27 @@ class DP100Dashboard:
         # Setup callbacks
         self._setup_callbacks()
         
-        # Start performance monitoring
+        # Start background tasks
         self.performance_monitor.start()
-        
-        # Try to connect to DP100 automatically
-        self._try_connect_dp100()
+        self.device_monitor_thread = threading.Thread(target=self._device_monitor_loop, daemon=True)
+        self.device_monitor_thread.start()
         
         self.logger.info("Dashboard initialized")
-    
-    def _try_connect_dp100(self) -> None:
-        """Try to connect to DP100 device automatically."""
-        try:
-            # Attempt to connect without starting full data collection
-            if self.data_collector.dp100.connect():
-                self.logger.info("DP100 connected automatically")
-            else:
-                self.logger.info("DP100 not available for automatic connection")
-        except Exception as e:
-            self.logger.debug(f"Auto-connection attempt failed: {e}")
+
+    def _device_monitor_loop(self) -> None:
+        """Monitors device connection and keeps data collector running."""
+        self.logger.info("Device monitor thread started")
+        while self.running:
+            if not self.data_collector.is_running():
+                self.logger.debug("Data collector is not running, attempting to start...")
+                try:
+                    # This will attempt to connect and start the thread
+                    self.data_collector.start()
+                except Exception as e:
+                    self.logger.error(f"Error starting data collector: {e}")
+            
+            time.sleep(5)  # Check every 5 seconds
+        self.logger.info("Device monitor thread stopped")
     
     def _setup_callbacks(self) -> None:
         """Setup Dash callbacks."""
@@ -112,13 +116,13 @@ class DP100Dashboard:
             if triggered_id == 'start-button' and start_clicks:
                 success = self._start_collection(session_id)
                 if success:
-                    alerts.append(create_alert("Data collection started", "success"))
+                    alerts.append(create_alert("Data saving to file started", "success"))
                 else:
                     alerts.append(create_alert("Failed to start data collection", "danger"))
             
             elif triggered_id == 'stop-button' and stop_clicks:
                 self._stop_collection()
-                alerts.append(create_alert("Data collection stopped", "info"))
+                alerts.append(create_alert("Data saving to file stopped", "info"))
             
             elif triggered_id == 'set-voltage-button' and voltage_clicks and voltage_value is not None:
                 success = self._set_voltage(voltage_value)
@@ -148,7 +152,7 @@ class DP100Dashboard:
             return self._get_control_states()
         
         @self.app.callback(
-            [Output('realtime-plot', 'figure'),
+            [Output('realtime-plot', 'extendData'),
              Output('current-voltage', 'children'),
              Output('current-current', 'children'),
              Output('current-power', 'children'),
@@ -157,50 +161,45 @@ class DP100Dashboard:
             [Input('update-interval', 'n_intervals')]
         )
         def update_display(n_intervals):
-            """Update real-time display."""
-            # Get new data from collector
+            """Update real-time display components."""
+            # 1. Get new data from the collector
+            samples = self.data_collector.get_samples(max_count=100)
+            
+            # 2. Process new data for plotting and saving
+            sample_dicts = [s.to_dict() for s in samples]
+            extend_data_tuple = self.realtime_plot.add_data_batch(sample_dicts)
+            
+            # Save to file if collecting
             if self.collecting:
-                samples = self.data_collector.get_samples(max_count=50)
                 for sample in samples:
-                    self.realtime_plot.add_data_point(
-                        sample.timestamp,
-                        sample.voltage,
-                        sample.current,
-                        sample.power
-                    )
-                    
-                    # Add to data manager
                     self.data_manager.add_measurement(sample)
-            
-            # Create plot
-            figure = self.realtime_plot.create_figure()
-            
-            # Get latest values
+
+            # If no new points were added after decimation, don't update the plot
+            if extend_data_tuple is None:
+                raise PreventUpdate
+
+            # 3. Get latest values for display
             latest = self.realtime_plot.get_latest_values()
-            
-            # Format current values
             voltage_text = f"{latest['voltage']:.2f}" if latest['voltage'] is not None else "0.00"
             current_text = f"{latest['current']:.3f}" if latest['current'] is not None else "0.000"
             power_text = f"{latest['power']:.2f}" if latest['power'] is not None else "0.00"
+
+            # 4. Get stats for display
+            stats = self.data_collector.get_statistics()
+            collection_status_str = "Saving to file" if self.collecting else "Not saving"
             
-            # Collection status
-            if self.collecting:
-                stats = self.data_collector.get_statistics()
-                status_text = [
-                    html.P(f"Collection: Running", className="mb-1"),
-                    html.P(f"Samples: {stats.get('samples_collected', 0):,}", className="mb-1"),
-                    html.P(f"Rate: {stats.get('samples_per_second', 0):.1f} Hz", className="mb-1")
-                ]
+            status_text = [
+                html.P(f"Status: {collection_status_str}", className="mb-1"),
+                html.P(f"Rate: {stats.get('samples_per_second', 0):.1f} Hz", className="mb-1")
+            ]
+
+            if self.data_collector.is_running():
                 statistics_content = format_statistics(stats)
             else:
-                status_text = [
-                    html.P("Collection: Stopped", className="mb-1"),
-                    html.P("Samples: 0", className="mb-1"),
-                    html.P("Rate: 0.0 Hz", className="mb-1")
-                ]
-                statistics_content = html.P("No data collected yet", className="text-muted")
-            
-            return (figure, voltage_text, current_text, power_text, 
+                statistics_content = html.P("Device not connected.", className="text-muted")
+
+            # 5. Return all updates
+            return (extend_data_tuple, voltage_text, current_text, power_text, 
                    status_text, statistics_content)
         
         @self.app.callback(
@@ -218,7 +217,7 @@ class DP100Dashboard:
         def update_time_window(window_seconds):
             """Update plot time window."""
             if window_seconds:
-                self.realtime_plot.set_time_window(window_seconds)
+                self.realtime_plot.set_time_window(int(window_seconds))
             return 'realtime-plot'  # Return same ID
     
     def _get_control_states(self) -> tuple:
@@ -252,7 +251,7 @@ class DP100Dashboard:
     
     def _start_collection(self, session_id: Optional[str]) -> bool:
         """
-        Start data collection.
+        Start saving data to a file.
         
         Args:
             session_id: Optional session identifier
@@ -261,40 +260,33 @@ class DP100Dashboard:
             True if started successfully
         """
         try:
-            # Start data collector
-            if not self.data_collector.start():
-                return False
-            
             # Start data manager session
             self.data_manager.start_session(session_id)
             
             self.collecting = True
             self.session_active = True
             
-            self.logger.info("Data collection started")
+            self.logger.info("Data saving to file started")
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to start collection: {e}")
+            self.logger.error(f"Failed to start saving session: {e}")
             return False
     
     def _stop_collection(self) -> None:
-        """Stop data collection."""
+        """Stop saving data to a file."""
         try:
             self.collecting = False
-            
-            # Stop data collector
-            self.data_collector.stop()
             
             # End data manager session
             if self.session_active:
                 self.data_manager.end_session()
                 self.session_active = False
             
-            self.logger.info("Data collection stopped")
+            self.logger.info("Data saving to file stopped")
             
         except Exception as e:
-            self.logger.error(f"Error stopping collection: {e}")
+            self.logger.error(f"Error stopping saving session: {e}")
     
     def _set_voltage(self, voltage: float) -> bool:
         """Set DP100 voltage."""
@@ -350,6 +342,7 @@ class DP100Dashboard:
                         dbc.CardBody([
                             dcc.Graph(
                                 id='realtime-plot',
+                                figure=self.realtime_plot.create_figure(),
                                 config={'displayModeBar': True}
                             )
                         ])
@@ -389,8 +382,16 @@ class DP100Dashboard:
     def _cleanup(self) -> None:
         """Cleanup resources."""
         try:
+            self.running = False  # Stop background threads
+
             if self.collecting:
                 self._stop_collection()
+
+            if self.data_collector.is_running():
+                self.data_collector.stop()
+
+            if self.device_monitor_thread:
+                self.device_monitor_thread.join(timeout=2.0)
             
             self.performance_monitor.stop()
             

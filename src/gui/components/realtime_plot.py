@@ -70,20 +70,52 @@ class RealtimePlot:
         self.stats['points_plotted'] += 1
         self.stats['last_update'] = timestamp
     
-    def add_data_batch(self, measurements: List[Dict[str, Any]]) -> None:
+    def add_data_batch(self, measurements: List[Dict[str, Any]]) -> Optional[tuple]:
         """
-        Add batch of measurements.
+        Processes a batch of new measurements, handles decimation, adds to 
+        internal buffers, and returns data formatted for dcc.Graph.extendData.
         
         Args:
             measurements: List of measurement dictionaries
+            
+        Returns:
+            A tuple formatted for extendData, or None if no points are added.
         """
-        for measurement in measurements:
-            self.add_data_point(
-                measurement['timestamp'],
-                measurement['voltage'],
-                measurement['current'],
-                measurement['power']
-            )
+        if not measurements:
+            return None
+
+        new_timestamps = []
+        new_voltages = []
+        new_currents = []
+        new_powers = []
+
+        for m in measurements:
+            self.plot_counter += 1
+            if self.plot_counter % self.decimation_factor == 0:
+                ts = m['timestamp']
+                v = m['voltage']
+                c = m['current']
+                p = m['power']
+                
+                self.timestamps.append(ts)
+                self.voltages.append(v)
+                self.currents.append(c)
+                self.powers.append(p)
+                
+                new_timestamps.append(ts)
+                new_voltages.append(v)
+                new_currents.append(c)
+                new_powers.append(p)
+        
+        if not new_timestamps:
+            return None
+
+        extended_data = {
+            'x': [new_timestamps, new_timestamps, new_timestamps],
+            'y': [new_voltages, new_currents, new_powers]
+        }
+        
+        return (extended_data, [0, 1, 2], self.max_points)
     
     def create_figure(self) -> go.Figure:
         """
@@ -169,6 +201,7 @@ class RealtimePlot:
                 showgrid=True, 
                 gridwidth=1, 
                 gridcolor='lightgray',
+                rangemode='tozero',  # Ensure axis includes 0
                 row=row, col=1
             )
         
