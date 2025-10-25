@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 from .components.realtime_plot import RealtimePlot
-from .components.controls import ControlPanel, create_alerts_container, create_alert, create_statistics_display, format_statistics
+from .components.controls import ControlPanel, create_alerts_container, create_alert, create_statistics_display, format_statistics, create_energy_meter_display
 from ..device.data_collector import DataCollector
 from ..storage.data_manager import DataManager
 from ..storage.data_models import PowerMeasurement
@@ -43,6 +43,11 @@ class DP100Dashboard:
         self.collecting = False  # This flag now means "saving to file"
         self.session_active = False
         self.alerts = []
+
+        # Energy meter state
+        self.total_mwh = 0.0
+        self.total_mah = 0.0
+        self.last_integration_timestamp: Optional[datetime] = None
         
         # Background thread management
         self.running = True
@@ -157,25 +162,51 @@ class DP100Dashboard:
              Output('current-current', 'children'),
              Output('current-power', 'children'),
              Output('collection-status', 'children'),
-             Output('statistics-content', 'children')],
-            [Input('update-interval', 'n_intervals')]
+             Output('statistics-content', 'children'),
+             Output('total-mwh', 'children'),
+             Output('total-mah', 'children')],
+            [Input('update-interval', 'n_intervals'),
+             Input('reset-meter-button', 'n_clicks')]
         )
-        def update_display(n_intervals):
-            """Update real-time display components."""
+        def update_display(n_intervals, reset_clicks):
+            """Update real-time display components and energy meter."""
+            ctx = callback_context
+            triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+            # Handle reset button click
+            if triggered_id == 'reset-meter-button':
+                self.total_mwh = 0.0
+                self.total_mah = 0.0
+                self.last_integration_timestamp = None
+                self.logger.info("Energy meter reset.")
+
             # 1. Get new data from the collector
             samples = self.data_collector.get_samples(max_count=100)
             
             # 2. Process new data for plotting and saving
             sample_dicts = [s.to_dict() for s in samples]
             extend_data_tuple = self.realtime_plot.add_data_batch(sample_dicts)
+
+            # --- Integration for mWh and mAh ---
+            if self.last_integration_timestamp is None and samples:
+                self.last_integration_timestamp = samples[0].timestamp
+            
+            for sample in samples:
+                delta_t = (sample.timestamp - self.last_integration_timestamp).total_seconds()
+                if delta_t > 0:
+                    # mWh = (W * 1000) * (s / 3600)
+                    self.total_mwh += (sample.power * 1000) * (delta_t / 3600.0)
+                    # mAh = (A * 1000) * (s / 3600)
+                    self.total_mah += (sample.current * 1000) * (delta_t / 3600.0)
+                self.last_integration_timestamp = sample.timestamp
             
             # Save to file if collecting
             if self.collecting:
                 for sample in samples:
                     self.data_manager.add_measurement(sample)
 
-            # If no new points were added after decimation, don't update the plot
-            if extend_data_tuple is None:
+            # If no new points were added after decimation, only update text values
+            if extend_data_tuple is None and triggered_id != 'reset-meter-button':
                 raise PreventUpdate
 
             # 3. Get latest values for display
@@ -198,9 +229,13 @@ class DP100Dashboard:
             else:
                 statistics_content = html.P("Device not connected.", className="text-muted")
 
-            # 5. Return all updates
+            # 5. Format energy meter values
+            mwh_text = f"{self.total_mwh:.2f}"
+            mah_text = f"{self.total_mah:.2f}"
+
+            # 6. Return all updates
             return (extend_data_tuple, voltage_text, current_text, power_text, 
-                   status_text, statistics_content)
+                   status_text, statistics_content, mwh_text, mah_text)
         
         @self.app.callback(
             Output('update-interval', 'interval'),
@@ -331,6 +366,7 @@ class DP100Dashboard:
                 # Left column - Controls
                 dbc.Col([
                     self.control_panel.create_layout(),
+                    create_energy_meter_display(),
                     create_statistics_display()
                 ], width=4),
                 

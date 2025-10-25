@@ -305,6 +305,26 @@ def create_statistics_display() -> html.Div:
         ])
     ], className="mb-3")
 
+def create_energy_meter_display() -> html.Div:
+    """Create energy meter display component."""
+    return dbc.Card([
+        dbc.CardHeader("Energy Meter"),
+        dbc.CardBody([
+            dbc.Row([
+                dbc.Col([
+                    html.H4("0.00", id="total-mwh", className="text-info"),
+                    html.P("milliwatt-hours (mWh)", className="mb-0")
+                ], className="text-center"),
+                dbc.Col([
+                    html.H4("0.00", id="total-mah", className="text-warning"),
+                    html.P("milliamp-hours (mAh)", className="mb-0")
+                ], className="text-center")
+            ]),
+            html.Hr(),
+            dbc.Row(dbc.Col(dbc.Button("Reset Meter", id="reset-meter-button", color="secondary", outline=True, size="sm"), className="d-grid"))
+        ])
+    ], className="mb-3")
+
 
 def format_statistics(stats: Dict[str, Any]) -> html.Div:
     """
