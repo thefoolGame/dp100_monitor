@@ -42,7 +42,7 @@ class DP100Dashboard:
         # Application state
         self.collecting = False  # This flag now means "saving to file"
         self.session_active = False
-        self.alerts = []
+        self.alert: Optional[dbc.Alert] = None
 
         # Energy meter state
         self.total_mwh = 0.0
@@ -116,43 +116,42 @@ class DP100Dashboard:
             
             triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
             
-            alerts = list(self.alerts)  # Copy current alerts
+            new_alert = None # Will hold the single alert to be displayed
             
             if triggered_id == 'start-button' and start_clicks:
                 success = self._start_collection(session_id)
                 if success:
-                    alerts.append(create_alert("Data saving to file started", "success"))
+                    new_alert = create_alert("Data saving to file started", "success")
                 else:
-                    alerts.append(create_alert("Failed to start data collection", "danger"))
+                    new_alert = create_alert("Failed to start data collection", "danger")
             
             elif triggered_id == 'stop-button' and stop_clicks:
                 self._stop_collection()
-                alerts.append(create_alert("Data saving to file stopped", "info"))
+                new_alert = create_alert("Data saving to file stopped", "info")
             
             elif triggered_id == 'set-voltage-button' and voltage_clicks and voltage_value is not None:
-                success = self._set_voltage(voltage_value)
+                success = self._set_voltage(float(voltage_value))
                 if success:
-                    alerts.append(create_alert(f"Voltage set to {voltage_value}V", "success"))
+                    new_alert = create_alert(f"Voltage set to {voltage_value}V", "success")
                 else:
-                    alerts.append(create_alert("Failed to set voltage", "danger"))
+                    new_alert = create_alert("Failed to set voltage", "danger")
             
             elif triggered_id == 'set-current-button' and current_clicks and current_value is not None:
-                success = self._set_current(current_value)
+                success = self._set_current(float(current_value))
                 if success:
-                    alerts.append(create_alert(f"Current limit set to {current_value}A", "success"))
+                    new_alert = create_alert(f"Current limit set to {current_value}A", "success")
                 else:
-                    alerts.append(create_alert("Failed to set current", "danger"))
+                    new_alert = create_alert("Failed to set current", "danger")
             
             elif triggered_id == 'output-switch':
                 success = self._set_output(output_enabled)
                 state = "enabled" if output_enabled else "disabled"
                 if success:
-                    alerts.append(create_alert(f"Output {state}", "success"))
+                    new_alert = create_alert(f"Output {state}", "success")
                 else:
-                    alerts.append(create_alert(f"Failed to {state.split()[0]} output", "danger"))
+                    new_alert = create_alert(f"Failed to {state.split()[0]} output", "danger")
             
-            # Limit alerts to last 5
-            self.alerts = alerts[-5:]
+            self.alert = new_alert
             
             return self._get_control_states()
         
@@ -257,8 +256,7 @@ class DP100Dashboard:
     
     def _get_control_states(self) -> tuple:
         """Get current control states."""
-        # Connection status
-        connected = self.data_collector.dp100.is_connected() if hasattr(self.data_collector, 'dp100') else False
+        connected = self.data_collector.is_running()
         
         if connected:
             status_badge = dbc.Badge("Connected", color="success", className="me-2")
@@ -270,18 +268,18 @@ class DP100Dashboard:
         # Control states
         start_disabled = self.collecting
         stop_disabled = not self.collecting
-        controls_disabled = not connected or self.collecting
+        controls_disabled = not connected
         
         return (
-            start_disabled,           # start-button disabled
-            stop_disabled,            # stop-button disabled
-            controls_disabled,        # voltage-input disabled
-            controls_disabled,        # current-input disabled
-            controls_disabled,        # set-voltage-button disabled
-            controls_disabled,        # set-current-button disabled
-            controls_disabled,        # output-switch disabled
-            connection_status,        # connection-status children
-            self.alerts              # alerts-container children
+            start_disabled,
+            stop_disabled,
+            controls_disabled,
+            controls_disabled,
+            controls_disabled,
+            controls_disabled,
+            controls_disabled,
+            connection_status,
+            self.alert
         )
     
     def _start_collection(self, session_id: Optional[str]) -> bool:
