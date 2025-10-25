@@ -17,12 +17,9 @@ gui:
   debug: false               # Enable Dash debug mode
 
 storage:
-  session_duration: 3600     # seconds - auto-split files (1 hour)
   compression: null          # HDF5 compression algorithm (null for no compression)
   compression_level: 1       # Compression level (1=fast, 9=best)
-  backup_interval: 1000      # samples between CSV backups
   buffer_size: 5000          # samples to buffer before writing
-  max_memory_mb: 100         # Maximum memory usage for data buffers
 
 logging:
   level: "DEBUG"              # DEBUG, INFO, WARNING, ERROR
