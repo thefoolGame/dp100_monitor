@@ -1,0 +1,39 @@
+# DP100 Monitor Configuration
+
+device:
+  sampling_rate: 50           # Hz - data collection frequency
+  usb_timeout: 1000          # ms - USB communication timeout
+  vendor_id: 0x2E3C          # DP100 vendor ID
+  product_id: 0xAF01         # DP100 product ID
+  reconnect_attempts: 5      # Number of reconnection attempts
+  reconnect_delay: 2.0       # Seconds between reconnect attempts
+
+gui:
+  refresh_rate: 100          # ms - dashboard update interval (10 Hz)
+  plot_window: 60            # seconds - time window for live plot
+  decimation_factor: 5       # Show every Nth point for smooth plotting
+  host: "127.0.0.1"         # Dash server host
+  port: 8050                 # Dash server port
+  debug: false               # Enable Dash debug mode
+
+storage:
+  session_duration: 3600     # seconds - auto-split files (1 hour)
+  compression: null          # HDF5 compression algorithm (null for no compression)
+  compression_level: 1       # Compression level (1=fast, 9=best)
+  backup_interval: 1000      # samples between CSV backups
+  buffer_size: 5000          # samples to buffer before writing
+  max_memory_mb: 100         # Maximum memory usage for data buffers
+
+logging:
+  level: "INFO"              # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_enabled: true         # Enable logging to file
+  console_enabled: true      # Enable console logging
+  max_file_size_mb: 10      # Maximum log file size
+  backup_count: 5            # Number of log file backups
+
+performance:
+  monitor_enabled: true      # Enable performance monitoring
+  memory_check_interval: 10  # seconds between memory checks
+  cpu_check_interval: 5     # seconds between CPU checks
+  alert_memory_threshold: 80 # Percent memory usage alert threshold
